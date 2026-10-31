@@ -32,16 +32,22 @@ function pump() {
 function status(s) { enqueue({ STATUS: s }); }
 
 /* ---------- http ---------- */
-function getJSON(url, cb) {
+function getJSON(url, cb, tried) {
   var done = false;
   var xhr = new XMLHttpRequest();
   xhr.timeout = 20000;
-  function fin(v) { if (!done) { done = true; cb(v); } }
+  function fin(v) {
+    if (done) return;
+    done = true;
+    if (v === null && !tried) { setTimeout(function () { getJSON(url, cb, true); }, 800); return; } // one retry
+    cb(v);
+  }
   xhr.onload = function () {
-    try { fin(JSON.parse(xhr.responseText)); } catch (e) { fin(null); }
+    try { fin(JSON.parse(xhr.responseText)); }
+    catch (e) { console.log('bad json (' + xhr.status + ') ' + url.substr(0, 110)); fin(null); }
   };
-  xhr.onerror = function () { fin(null); };
-  xhr.ontimeout = function () { fin(null); };
+  xhr.onerror = function () { console.log('xhr error ' + url.substr(0, 110)); fin(null); };
+  xhr.ontimeout = function () { console.log('xhr timeout ' + url.substr(0, 110)); fin(null); };
   xhr.open('GET', url);
   xhr.send();
 }
@@ -161,6 +167,9 @@ function buildAirspace(lat, lon, cb) {
   function done() {
     if (--res.pending > 0) return;
     res.ok = okFlags.fac && okFlags.cls && okFlags.tfr && okFlags.sua;
+    res.missing = [];
+    var nm = { fac: 'ceiling', cls: 'class', sua: 'restricted', tfr: 'TFR', dod: 'military', std: 'stadium' };
+    for (var k in nm) if (!okFlags[k]) res.missing.push(nm[k]);
     cb(res);
   }
   // 1) LAANC facility map ceiling at the exact point
@@ -300,7 +309,7 @@ function assess(w, kp, air) {
   } else if (inCtrl) {
     add(1, 'Authorization needed', 'Controlled airspace - use LAANC');
   }
-  if (!air.ok) add(1, 'Airspace data incomplete', 'Check B4UFLY before flying');
+  if (!air.ok) add(1, 'Airspace data incomplete', 'Missing: ' + (air.missing || []).join(', '));
   var seen = {};
   alerts = alerts.filter(function (a) { var k = a.text + a.detail; if (seen[k]) return false; seen[k] = 1; return true; });
   alerts.sort(function (a, b) { return b.sev - a.sev; });
