@@ -1,0 +1,28 @@
+{
+  "name": "Should I Fly?",
+  "author": "Brooman Inks",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Should I Fly?",
+    "uuid": "38588757-378f-434c-9819-e7134663a193",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": ["emery", "gabbro"],
+    "watchapp": { "watchface": false },
+    "capabilities": ["location"],
+    "messageKeys": [
+      "REQUEST", "STATUS", "VERDICT", "REASON",
+      "W10", "W80", "W120", "W180", "GUST", "WDIR", "TEMP",
+      "PRECIP", "COND", "VIS", "CLOUD", "KP", "SUNRISE", "SUNSET", "NOWMIN", "CEIL",
+      "HSTART", "HW", "HV", "ZONES", "ALERTS"
+    ],
+    "resources": {
+      "media": [
+        { "type": "bitmap", "name": "MENU_ICON", "file": "images/menu_icon.png", "menuIcon": true }
+      ]
+    }
+  }
+}
