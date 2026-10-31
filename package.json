@@ -15,7 +15,7 @@
     "capabilities": ["location"],
     "messageKeys": [
       "REQUEST", "STATUS", "VERDICT", "REASON",
-      "W10", "W80", "W120", "W180", "GUST", "WDIR", "TEMP",
+      "W0", "W100", "W200", "W300", "W400", "GUST", "WDIR", "TEMP",
       "PRECIP", "COND", "VIS", "CLOUD", "KP", "SUNRISE", "SUNSET", "NOWMIN", "CEIL",
       "HSTART", "HW", "HV", "ZONES", "ALERTS"
     ],

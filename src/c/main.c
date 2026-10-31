@@ -11,7 +11,7 @@
 #define PAGE_ALERTS 4
 #define PAGE_HOURS 5
 
-#define BG_COLOR GColorOxfordBlue
+#define BG_COLOR GColorBlack
 #define COL_GO GColorGreen
 #define COL_CAUTION GColorYellow
 #define COL_NOGO GColorRed
@@ -26,7 +26,7 @@ static int s_page = 0;
 static char s_status[48];
 static int s_verdict = -1;   // -1 = no data yet, 0 go, 1 caution, 2 no-go
 static char s_reason[48];
-static int s_w10, s_w80, s_w120, s_w180, s_gust, s_wdir, s_temp;
+static int s_w0, s_w100, s_w200, s_w300, s_w400, s_gust, s_wdir, s_temp;
 static int s_precip, s_vis, s_cloud, s_kp, s_sunrise, s_sunset, s_nowmin, s_ceil = 400;
 static char s_cond[24];
 static char s_zones[384];
@@ -164,13 +164,13 @@ static void page_verdict(GContext *ctx, Metrics m) {
   int by = m.top + 26;
   graphics_context_set_fill_color(ctx, c);
   graphics_fill_rect(ctx, GRect(bx, by, bw, 62), 10, GCornersAll);
-  draw_text(ctx, word, FONT_KEY_BITHAM_30_BLACK, GRect(bx, by + 8, bw, 40), GTextAlignmentCenter, GColorBlack);
+  draw_text(ctx, word, FONT_KEY_BITHAM_30_BLACK, GRect(bx, by + 12, bw, 40), GTextAlignmentCenter, GColorBlack);
 
   draw_text(ctx, s_reason, FONT_KEY_GOTHIC_24_BOLD, GRect(m.pad, by + 70, bw, 58), GTextAlignmentCenter, GColorWhite);
 
   char buf[48];
   int y = m.h - m.bottom - 46;
-  snprintf(buf, sizeof(buf), "%d mph @ 400 ft  |  %dF", s_w120, s_temp);
+  snprintf(buf, sizeof(buf), "%d mph @ 400 ft  |  %dF", s_w400, s_temp);
   draw_text(ctx, buf, FONT_KEY_GOTHIC_18, GRect(m.pad, y, bw, 22), GTextAlignmentCenter, GColorWhite);
   if (s_status[0]) {
     draw_text(ctx, s_status, FONT_KEY_GOTHIC_14, GRect(m.pad, y + 22, bw, 18), GTextAlignmentCenter, COL_CAUTION);
@@ -183,21 +183,21 @@ static void page_wind(GContext *ctx, Metrics m) {
   draw_header(ctx, m, "WIND (MPH)");
   if (s_verdict < 0) { draw_message(ctx, m, "No data yet"); return; }
 
-  static const char *labels[] = {"590 ft", "400 ft", "260 ft", "33 ft"};
-  int vals[4] = {s_w180, s_w120, s_w80, s_w10};
+  static const char *labels[] = {"400 ft", "300 ft", "200 ft", "100 ft", "0 ft"};
+  int vals[5] = {s_w400, s_w300, s_w200, s_w100, s_w0};
   int bar_x = m.pad + 52;
   int bar_max_w = m.w - m.pad - bar_x - 34;
-  int y = m.top + 28;
-  const int row_h = 30;
-  for (int i = 0; i < 4; i++) {
-    bool key = (i == 1);
+  int y = m.top + 22;
+  const int row_h = 25;
+  for (int i = 0; i < 5; i++) {
+    bool key = (i == 0);
     draw_text(ctx, labels[i], key ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18,
               GRect(m.pad, y, 56, 22), GTextAlignmentLeft, key ? GColorWhite : COL_DIM);
     int bw = vals[i] * bar_max_w / 30;
     if (bw > bar_max_w) bw = bar_max_w;
     if (bw < 2) bw = 2;
     graphics_context_set_fill_color(ctx, wind_color(vals[i]));
-    graphics_fill_rect(ctx, GRect(bar_x, y + 4, bw, 14), 3, GCornersAll);
+    graphics_fill_rect(ctx, GRect(bar_x, y + 4, bw, 13), 3, GCornersAll);
     char b[8];
     snprintf(b, sizeof(b), "%d", vals[i]);
     draw_text(ctx, b, FONT_KEY_GOTHIC_18_BOLD, GRect(bar_x + bw + 3, y, 34, 22), GTextAlignmentLeft, GColorWhite);
@@ -205,7 +205,7 @@ static void page_wind(GContext *ctx, Metrics m) {
   }
   // direction + gusts
   char buf[48];
-  y += 6;
+  y += 4;
   snprintf(buf, sizeof(buf), "Wind from the %s", compass(s_wdir));
   draw_text(ctx, buf, FONT_KEY_GOTHIC_18, GRect(m.pad, y, m.w - 2 * m.pad, 22), GTextAlignmentCenter, GColorWhite);
   snprintf(buf, sizeof(buf), "Gusts up to ~%d mph", s_gust);
@@ -363,6 +363,7 @@ static void touch_handler(const TouchEvent *event, void *context) {
     int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     if (adx > 40 && adx >= ady) change_page(dx < 0 ? 1 : -1);
     else if (ady > 40) change_page(dy < 0 ? 1 : -1);
+    else if (adx < 15 && ady < 15) request_refresh();  // tap
   }
 }
 #endif
@@ -381,10 +382,11 @@ static void inbox_received(DictionaryIterator *it, void *context) {
   if ((t = dict_find(it, MESSAGE_KEY_STATUS))) copy_str(s_status, sizeof(s_status), t);
   if ((t = dict_find(it, MESSAGE_KEY_VERDICT))) { s_verdict = (int)t->value->int32; s_status[0] = 0; }
   copy_str(s_reason, sizeof(s_reason), dict_find(it, MESSAGE_KEY_REASON));
-  if ((t = dict_find(it, MESSAGE_KEY_W10))) s_w10 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W80))) s_w80 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W120))) s_w120 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W180))) s_w180 = (int)t->value->int32;
+  if ((t = dict_find(it, MESSAGE_KEY_W0))) s_w0 = (int)t->value->int32;
+  if ((t = dict_find(it, MESSAGE_KEY_W100))) s_w100 = (int)t->value->int32;
+  if ((t = dict_find(it, MESSAGE_KEY_W200))) s_w200 = (int)t->value->int32;
+  if ((t = dict_find(it, MESSAGE_KEY_W300))) s_w300 = (int)t->value->int32;
+  if ((t = dict_find(it, MESSAGE_KEY_W400))) s_w400 = (int)t->value->int32;
   if ((t = dict_find(it, MESSAGE_KEY_GUST))) s_gust = (int)t->value->int32;
   if ((t = dict_find(it, MESSAGE_KEY_WDIR))) s_wdir = (int)t->value->int32;
   if ((t = dict_find(it, MESSAGE_KEY_TEMP))) s_temp = (int)t->value->int32;

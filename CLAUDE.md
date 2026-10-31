@@ -15,12 +15,12 @@ pebble install --phone 192.168.0.228   # IPs drift, see memory
 
 ## Architecture
 - `src/pkjs/index.js` does everything smart: geolocation, fetches (Open-Meteo, NOAA Kp, FAA ArcGIS, FAA TFR WFS), point-in-polygon and distance math, and the verdict. It sends 5 small AppMessages in sequence (send queue, one at a time).
-- `src/c/main.c` only displays. One canvas layer, 6 pages, UP/DOWN or swipe to change page, SELECT sends REQUEST to refresh.
+- `src/c/main.c` only displays. One canvas layer, 6 pages, UP/DOWN or swipe to change page, SELECT or a touchscreen tap sends REQUEST to refresh. Background is pure black.
 - List text format sent to the watch: `<sev digit><title>\t<detail>` per line (0 info, 1 caution, 2 no-go).
 - Verdict limits live in `LIM` at the top of the pkjs file.
 
 ## Message keys
-REQUEST, STATUS, VERDICT, REASON, W10, W80, W120, W180, GUST, WDIR, TEMP, PRECIP, COND, VIS, CLOUD, KP, SUNRISE, SUNSET, NOWMIN, CEIL, HSTART, HW, HV, ZONES, ALERTS (see package.json).
+REQUEST, STATUS, VERDICT, REASON, W0, W100, W200, W300, W400, GUST, WDIR, TEMP, PRECIP, COND, VIS, CLOUD, KP, SUNRISE, SUNSET, NOWMIN, CEIL, HSTART, HW, HV, ZONES, ALERTS (see package.json).
 
 ## Testing without a phone
 `node /tmp/harness.js <lat> <lon>` style shim: fake `XMLHttpRequest` (via fetch), `navigator.geolocation`, `Pebble` and eval `src/pkjs/index.js`. Good spots: Addison TX (32.97 -96.84, Class D, ceiling 0), Washington DC (38.8895 -77.0353, many zones).

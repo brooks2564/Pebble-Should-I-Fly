@@ -10,12 +10,12 @@ Works on **Pebble Time 2 (emery)** and **Pebble Round 2 (gabbro)**.
 
 ## Screens
 
-Use **UP / DOWN** (or swipe on the touchscreen) to move between pages. **SELECT** refreshes.
+Use **UP / DOWN** (or swipe on the touchscreen) to move between pages. **SELECT** or a **tap** on the touchscreen refreshes.
 
 | Page | What it shows |
 |------|---------------|
 | Verdict | GO / CAUTION / NO-GO and the most important reason |
-| Wind | Wind speed at 33 ft, 260 ft, 400 ft and 590 ft, wind direction, estimated gusts |
+| Wind | Wind speed at 0, 100, 200, 300 and 400 ft, wind direction, estimated gusts |
 | Conditions | Temperature, sky, rain, visibility, GPS storm (Kp) index, sunrise and sunset |
 | Airspace | FAA ceiling at your spot, and nearby zones with distance and direction |
 | Warnings | Every reason not to fly, worst first |
@@ -25,7 +25,7 @@ The watch vibrates when the verdict is CAUTION or NO-GO.
 
 ## What it checks
 
-- **Wind and gusts** at 10 m, 80 m, 120 m (about 400 ft) and 180 m
+- **Wind and gusts** at 0, 100, 200, 300 and 400 ft
 - **Temperature**, with cold-battery and heat warnings
 - **Rain, snow, thunderstorms** and **visibility** (3 mile minimum for line of sight)
 - **Geomagnetic storms** (Kp index), which can disturb GPS
@@ -79,6 +79,7 @@ The app needs location permission on your phone (Pebble app settings).
 ## Limitations
 
 - **US only.** Airspace data covers the United States.
+- Weather models report wind at 10 m, 80 m and 120 m only. The 0 ft value is the 10 m (33 ft) wind, and 100, 200 and 300 ft are interpolated between those heights.
 - Gusts are an estimate: the 10 m gust excess is added to the 400 ft wind.
 - Wind and weather come from forecast models, not a sensor at your location.
 - National parks, state parks, and local rules are **not** checked. Many ban drones.

@@ -115,6 +115,8 @@ function wcode(c) {
   if (c >= 95) return 'Thunderstorm';
   return 'Cloudy';
 }
+// Linear interpolation of wind between two model heights (metres)
+function lerp(v0, h0, v1, h1, h) { return v0 + (v1 - v0) * (h - h0) / (h1 - h0); }
 function gust120(w120, w10, g10) { return Math.round(w120 + Math.max(0, g10 - w10)); }
 function hourVerdict(w120, g, precip, code) {
   if (w120 >= LIM.windNoGo || g >= LIM.gustNoGo || (code >= 95) || precip >= 0.05) return 2;
@@ -330,7 +332,9 @@ function assess(w, kp, air) {
   return {
     verdict: verdict, reason: reason, alerts: alerts, zlines: zlines, hw: hw, hv: hv,
     vals: {
-      W10: Math.round(w10), W80: Math.round(c.wind_speed_80m), W120: Math.round(w120), W180: Math.round(c.wind_speed_180m),
+      W0: Math.round(w10), W100: Math.round(lerp(w10, 10, c.wind_speed_80m, 80, 30.48)),
+      W200: Math.round(lerp(w10, 10, c.wind_speed_80m, 80, 60.96)),
+      W300: Math.round(lerp(c.wind_speed_80m, 80, w120, 120, 91.44)), W400: Math.round(w120),
       GUST: g, WDIR: c.wind_direction_10m, TEMP: t, PRECIP: Math.round(precip * 100), COND: wcode(code),
       VIS: Math.round(vis * 10), CLOUD: c.cloud_cover, KP: Math.round(kp * 10),
       SUNRISE: rise, SUNSET: set, NOWMIN: now, CEIL: air.ceil < 0 ? MAX_ALT_FT : Math.min(air.ceil, MAX_ALT_FT),
@@ -356,7 +360,7 @@ function run() {
       try { r = assess(weather, kp === null || isNaN(kp) ? 0 : kp, air || { zones: [], ceil: -1, ok: false }); }
       catch (e) { status('Error: ' + e.message); return; }
       var v = r.vals;
-      enqueue({ VERDICT: r.verdict, REASON: r.reason, W10: v.W10, W80: v.W80, W120: v.W120, W180: v.W180,
+      enqueue({ VERDICT: r.verdict, REASON: r.reason, W0: v.W0, W100: v.W100, W200: v.W200, W300: v.W300, W400: v.W400,
         GUST: v.GUST, WDIR: v.WDIR, TEMP: v.TEMP });
       enqueue({ PRECIP: v.PRECIP, COND: v.COND, VIS: v.VIS, CLOUD: v.CLOUD, KP: v.KP,
         SUNRISE: v.SUNRISE, SUNSET: v.SUNSET, NOWMIN: v.NOWMIN, CEIL: v.CEIL });
