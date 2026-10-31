@@ -18,8 +18,13 @@
 #define COL_NOGO GColorRed
 #define COL_DIM GColorLightGray
 
+#define PERSIST_DISCLAIMER 1   // persistent flag: disclaimer already accepted
+
 static Window *s_window;
 static Layer *s_canvas;
+static Window *s_disc_window;
+static Layer *s_disc_layer;
+static bool s_disc_showing = false;
 
 static int s_page = 0;
 
@@ -77,6 +82,7 @@ static const SpeakerNote SND_NOGO[] = {
 #endif
 
 static void play_alert(int verdict) {
+  if (s_disc_showing) return;  // stay quiet until the disclaimer is accepted
   if (s_vibe) {
     if (verdict == 1) vibes_short_pulse();
     else if (verdict >= 2) vibes_double_pulse();
@@ -378,6 +384,66 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   draw_dots(ctx, m);
 }
 
+/* ------------------------------------------------------------- disclaimer */
+
+static void disc_draw(Layer *layer, GContext *ctx) {
+  GRect b = layer_get_bounds(layer);
+  Metrics m = metrics(b);
+  int w = m.w - 2 * m.pad;
+  graphics_context_set_fill_color(ctx, BG_COLOR);
+  graphics_fill_rect(ctx, b, 0, GCornerNone);
+  draw_header(ctx, m, "SHOULD I FLY?");
+  draw_text(ctx, "Advisory only", FONT_KEY_GOTHIC_24_BOLD, GRect(m.pad, m.top + 20, w, 30), GTextAlignmentCenter, COL_CAUTION);
+  draw_text(ctx,
+            "Weather and airspace data are estimates and can be late or wrong. "
+            "Always confirm in the FAA B4UFLY app and follow all FAA rules. "
+            "You are responsible for your flight.",
+            FONT_KEY_GOTHIC_14, GRect(m.pad, m.top + 52, w, m.h - m.top - m.bottom - 100), GTextAlignmentCenter, GColorWhite);
+  draw_text(ctx, "SELECT or tap to accept", FONT_KEY_GOTHIC_18_BOLD,
+            GRect(m.pad, m.h - m.bottom - 44, w, 22), GTextAlignmentCenter, COL_GO);
+  draw_text(ctx, "BACK to exit", FONT_KEY_GOTHIC_14, GRect(m.pad, m.h - m.bottom - 22, w, 18), GTextAlignmentCenter, COL_DIM);
+}
+
+static void disc_accept(void) {
+  persist_write_bool(PERSIST_DISCLAIMER, true);
+  s_disc_showing = false;
+  if (s_disc_window) {
+    Window *w = s_disc_window;
+    window_stack_remove(w, true);
+    window_destroy(w);
+    s_disc_window = NULL;
+  }
+}
+
+static void disc_select(ClickRecognizerRef r, void *c) { disc_accept(); }
+static void disc_back(ClickRecognizerRef r, void *c) { window_stack_pop_all(true); }
+
+static void disc_click_config(void *context) {
+  window_single_click_subscribe(BUTTON_ID_SELECT, disc_select);
+  window_single_click_subscribe(BUTTON_ID_BACK, disc_back);
+}
+
+static void disc_load(Window *w) {
+  Layer *root = window_get_root_layer(w);
+  s_disc_layer = layer_create(layer_get_bounds(root));
+  layer_set_update_proc(s_disc_layer, disc_draw);
+  layer_add_child(root, s_disc_layer);
+}
+
+static void disc_unload(Window *w) {
+  layer_destroy(s_disc_layer);
+  s_disc_layer = NULL;
+}
+
+static void show_disclaimer(void) {
+  s_disc_window = window_create();
+  window_set_background_color(s_disc_window, BG_COLOR);
+  window_set_click_config_provider(s_disc_window, disc_click_config);
+  window_set_window_handlers(s_disc_window, (WindowHandlers){.load = disc_load, .unload = disc_unload});
+  s_disc_showing = true;
+  window_stack_push(s_disc_window, true);
+}
+
 /* ------------------------------------------------------------------ input */
 
 static void change_page(int delta) {
@@ -413,6 +479,10 @@ static void touch_handler(const TouchEvent *event, void *context) {
     int dx = event->x - s_touch_start.x;
     int dy = event->y - s_touch_start.y;
     int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    if (s_disc_showing) {  // disclaimer: a tap accepts, nothing else does anything
+      if (adx < 15 && ady < 15) disc_accept();
+      return;
+    }
     if (adx > 40 && adx >= ady) change_page(dx < 0 ? 1 : -1);
     else if (ady > 40) change_page(dy < 0 ? 1 : -1);
     else if (adx < 15 && ady < 15) request_refresh();  // tap
@@ -513,9 +583,11 @@ static void init(void) {
   app_message_open(512, 64);
 
   window_stack_push(s_window, true);
+  if (!persist_read_bool(PERSIST_DISCLAIMER)) show_disclaimer();
 }
 
 static void deinit(void) {
+  if (s_disc_window) { window_destroy(s_disc_window); s_disc_window = NULL; }
   window_destroy(s_window);
 }
 

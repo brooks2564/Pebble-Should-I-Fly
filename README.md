@@ -6,6 +6,10 @@ Works on Pebble Time 2 (emery) and Pebble Round 2 (gabbro).
 
 Advisory only. This app is a convenience, not an authority. Data can be late, incomplete, or wrong. Always confirm in the FAA's B4UFLY app or another official source, and follow all FAA rules (Part 107 or recreational flyer rules) before you fly.
 
+## First launch
+
+The first time you open the app it shows an advisory screen: the data is an estimate, confirm in the FAA B4UFLY app, and you are responsible for your flight. Press SELECT or tap to accept. The watch remembers this, so it only appears once. BACK exits the app without accepting.
+
 ## Screens
 
 Use UP and DOWN (or swipe on the touchscreen) to move between pages. SELECT, or a tap on the touchscreen, refreshes.
