@@ -21,7 +21,7 @@ Use **UP / DOWN** (or swipe on the touchscreen) to move between pages. **SELECT*
 | Warnings | Every reason not to fly, worst first |
 | Next 6 hours | Wind at 400 ft each hour, color coded, with the best time to fly |
 
-The watch vibrates when the verdict is CAUTION or NO-GO.
+The watch vibrates when the verdict is CAUTION or NO-GO (can be turned off), and can play a sound (off by default, see Settings). The 6-hour chart covers weather only, not airspace.
 
 ## What it checks
 
@@ -50,7 +50,32 @@ The watch vibrates when the verdict is CAUTION or NO-GO.
 | Airspace | FAA grid ceiling under 400 ft, controlled airspace, nearby TFR, stadium | inside a TFR, Prohibited, Restricted or military zone, FAA grid ceiling of 0 ft |
 | Other | night flight, airspace data unavailable | |
 
-The limits are in `LIM` at the top of `src/pkjs/index.js`. Adjust them for your drone.
+All limits are adjustable in Settings (below). The numbers above are the defaults.
+
+## Settings
+
+Open the app's settings from the Pebble phone app (tap the app, then the gear). Everything is optional.
+
+| Group | Options |
+|-------|---------|
+| Units | Wind: mph, knots, m/s, km/h. Temperature: F or C. Distance and altitude: feet and miles, or meters and kilometers |
+| Flight | Max flight altitude (100 to 500 ft, default 400), airspace search radius (1 to 10 mi, default 5), night-flight warning on or off, stadium warning on or off |
+| Wind limits | Caution and no-go for wind and for gusts |
+| Temperature limits | Cold and hot caution and no-go |
+| Visibility and GPS | Visibility caution and no-go, Kp index caution and no-go |
+| Alerts | Vibration on or off, sound on or off, volume |
+
+Limits are entered in mph, F, miles and feet, whatever units you display. The wind screen shows five rows from 0 up to your max altitude.
+
+## Sounds
+
+Turn on **Play sounds** in Settings. Each time new data arrives the watch plays:
+
+- **GO**: a bright rising chime (four notes going up)
+- **CAUTION**: a soft two-tone descending "uh-oh" (triangle wave)
+- **NO-GO**: a low buzzer (three square-wave bursts)
+
+Sounds follow the watch's own mute and Quiet Time settings. They need a watch with a speaker, which both emery and gabbro have.
 
 ## Data sources (all free, no API keys)
 

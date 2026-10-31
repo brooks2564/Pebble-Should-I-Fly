@@ -1,3 +1,4 @@
 build/
 *.log
 .lock-waf*
+node_modules/

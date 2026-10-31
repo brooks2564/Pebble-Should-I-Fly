@@ -1,7 +1,8 @@
 #include <pebble.h>
 
 // Should I Fly? - drone flight conditions for Pebble (US only)
-// All data fetching/logic lives in src/pkjs/index.js; this file only displays it.
+// All data fetching, unit conversion and logic lives in src/pkjs/index.js.
+// This file only displays what the phone sends, plus vibration and sound alerts.
 
 #define NUM_PAGES 6
 #define PAGE_VERDICT 0
@@ -26,18 +27,67 @@ static int s_page = 0;
 static char s_status[48];
 static int s_verdict = -1;   // -1 = no data yet, 0 go, 1 caution, 2 no-go
 static char s_reason[48];
-static int s_w0, s_w100, s_w200, s_w300, s_w400, s_gust, s_wdir, s_temp;
-static int s_precip, s_vis, s_cloud, s_kp, s_sunrise, s_sunset, s_nowmin, s_ceil = 400;
-static char s_cond[24];
+static uint8_t s_wind[5];    // wind per row, top altitude first (display units)
+static char s_wlbl[56] = "400 ft|300 ft|200 ft|100 ft|0 ft";
+static char s_wunit[8] = "mph";
+static int s_wmax = 30, s_wcaut = 15, s_wnogo = 24;
+static int s_gust, s_wdir;
+static char s_stat[48];
+static char s_sevs[8] = "00000";   // severity per item: temp, rain, visibility, kp, gust
+static char s_temptxt[12], s_preciptxt[16], s_vistxt[16], s_kptxt[12], s_cond[24];
+static int s_sunrise, s_sunset;
+static char s_ceiltxt[20], s_ceilsub[32], s_hlbl[12];
+static int s_ceilsev;
 static char s_zones[384];
 static char s_alerts[384];
 static int s_hstart;
 static uint8_t s_hw[6], s_hv[6];
 static bool s_have_hours = false;
 
+// Alert settings (sent by the phone with every verdict)
+static bool s_sound = false;
+static bool s_vibe = true;
+static int s_volume = 60;
+
 #if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
 static GPoint s_touch_start;
 #endif
+
+/* ----------------------------------------------------------------- sounds */
+// GO: bright rising chime. CAUTION: two descending soft tones. NO-GO: low square-wave buzzer.
+#if PBL_API_EXISTS(speaker_play_notes)
+static const SpeakerNote SND_GO[] = {
+  {72, SpeakerWaveformSine, 110, 0, 0},
+  {76, SpeakerWaveformSine, 110, 0, 0},
+  {79, SpeakerWaveformSine, 110, 0, 0},
+  {84, SpeakerWaveformSine, 420, 0, 0},
+};
+static const SpeakerNote SND_CAUTION[] = {
+  {76, SpeakerWaveformTriangle, 220, 0, 0},
+  {0, SpeakerWaveformTriangle, 50, 0, 0},
+  {69, SpeakerWaveformTriangle, 420, 0, 0},
+};
+static const SpeakerNote SND_NOGO[] = {
+  {57, SpeakerWaveformSquare, 230, 0, 0},
+  {0, SpeakerWaveformSquare, 90, 0, 0},
+  {57, SpeakerWaveformSquare, 230, 0, 0},
+  {0, SpeakerWaveformSquare, 90, 0, 0},
+  {57, SpeakerWaveformSquare, 500, 0, 0},
+};
+#endif
+
+static void play_alert(int verdict) {
+  if (s_vibe) {
+    if (verdict == 1) vibes_short_pulse();
+    else if (verdict >= 2) vibes_double_pulse();
+  }
+#if PBL_API_EXISTS(speaker_play_notes)
+  if (!s_sound || speaker_is_muted()) return;
+  if (verdict == 0) speaker_play_notes(SND_GO, ARRAY_LENGTH(SND_GO), s_volume);
+  else if (verdict == 1) speaker_play_notes(SND_CAUTION, ARRAY_LENGTH(SND_CAUTION), s_volume);
+  else speaker_play_notes(SND_NOGO, ARRAY_LENGTH(SND_NOGO), s_volume);
+#endif
+}
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -45,8 +95,16 @@ static GColor sev_color(int sev) {
   return sev >= 2 ? COL_NOGO : (sev == 1 ? COL_CAUTION : COL_GO);
 }
 
-static GColor wind_color(int mph) {
-  return mph >= 24 ? COL_NOGO : (mph >= 15 ? COL_CAUTION : COL_GO);
+static GColor wind_color(int v) {
+  return v >= s_wnogo ? COL_NOGO : (v >= s_wcaut ? COL_CAUTION : COL_GO);
+}
+
+static int sev_at(int i) {
+  return (s_sevs[i] >= '0' && s_sevs[i] <= '2') ? s_sevs[i] - '0' : 0;
+}
+
+static GColor value_color(int sev) {
+  return sev == 0 ? GColorWhite : sev_color(sev);
 }
 
 static void draw_text(GContext *ctx, const char *s, const char *font_key, GRect r,
@@ -119,7 +177,7 @@ static void draw_message(GContext *ctx, Metrics m, const char *msg) {
             GRect(m.pad, m.h / 2 - 40, m.w - 2 * m.pad, 90), GTextAlignmentCenter, GColorWhite);
 }
 
-// "<sev><title>\t<detail>\n..." list. Returns rows drawn.
+// "<sev><title>\t<detail>\n..." list
 static void draw_list(GContext *ctx, Metrics m, const char *text, int y, int max_y) {
   const int row_h = 40;
   const char *p = text;
@@ -168,48 +226,57 @@ static void page_verdict(GContext *ctx, Metrics m) {
 
   draw_text(ctx, s_reason, FONT_KEY_GOTHIC_24_BOLD, GRect(m.pad, by + 70, bw, 58), GTextAlignmentCenter, GColorWhite);
 
-  char buf[48];
   int y = m.h - m.bottom - 46;
-  snprintf(buf, sizeof(buf), "%d mph @ 400 ft  |  %dF", s_w400, s_temp);
-  draw_text(ctx, buf, FONT_KEY_GOTHIC_18, GRect(m.pad, y, bw, 22), GTextAlignmentCenter, GColorWhite);
+  draw_text(ctx, s_stat, FONT_KEY_GOTHIC_18, GRect(m.pad, y, bw, 22), GTextAlignmentCenter, GColorWhite);
   if (s_status[0]) {
     draw_text(ctx, s_status, FONT_KEY_GOTHIC_14, GRect(m.pad, y + 22, bw, 18), GTextAlignmentCenter, COL_CAUTION);
   } else {
-    draw_text(ctx, "SELECT = refresh", FONT_KEY_GOTHIC_14, GRect(m.pad, y + 22, bw, 18), GTextAlignmentCenter, COL_DIM);
+    draw_text(ctx, "tap or SELECT = refresh", FONT_KEY_GOTHIC_14, GRect(m.pad, y + 22, bw, 18), GTextAlignmentCenter, COL_DIM);
   }
 }
 
 static void page_wind(GContext *ctx, Metrics m) {
-  draw_header(ctx, m, "WIND (MPH)");
+  char title[24];
+  snprintf(title, sizeof(title), "WIND (%s)", s_wunit);
+  draw_header(ctx, m, title);
   if (s_verdict < 0) { draw_message(ctx, m, "No data yet"); return; }
 
-  static const char *labels[] = {"400 ft", "300 ft", "200 ft", "100 ft", "0 ft"};
-  int vals[5] = {s_w400, s_w300, s_w200, s_w100, s_w0};
-  int bar_x = m.pad + 52;
+  // split "400 ft|300 ft|..." into 5 labels
+  char lbl[5][12];
+  memset(lbl, 0, sizeof(lbl));
+  {
+    int row = 0, k = 0;
+    for (const char *p = s_wlbl; *p && row < 5; p++) {
+      if (*p == '|') { row++; k = 0; }
+      else if (k < 11) lbl[row][k++] = *p;
+    }
+  }
+
+  int label_w = 58;
+  int bar_x = m.pad + label_w;
   int bar_max_w = m.w - m.pad - bar_x - 34;
   int y = m.top + 22;
   const int row_h = 25;
   for (int i = 0; i < 5; i++) {
     bool key = (i == 0);
-    draw_text(ctx, labels[i], key ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18,
-              GRect(m.pad, y, 56, 22), GTextAlignmentLeft, key ? GColorWhite : COL_DIM);
-    int bw = vals[i] * bar_max_w / 30;
+    draw_text(ctx, lbl[i], key ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18,
+              GRect(m.pad, y, label_w, 22), GTextAlignmentLeft, key ? GColorWhite : COL_DIM);
+    int bw = s_wmax > 0 ? s_wind[i] * bar_max_w / s_wmax : 2;
     if (bw > bar_max_w) bw = bar_max_w;
     if (bw < 2) bw = 2;
-    graphics_context_set_fill_color(ctx, wind_color(vals[i]));
+    graphics_context_set_fill_color(ctx, wind_color(s_wind[i]));
     graphics_fill_rect(ctx, GRect(bar_x, y + 4, bw, 13), 3, GCornersAll);
     char b[8];
-    snprintf(b, sizeof(b), "%d", vals[i]);
+    snprintf(b, sizeof(b), "%d", s_wind[i]);
     draw_text(ctx, b, FONT_KEY_GOTHIC_18_BOLD, GRect(bar_x + bw + 3, y, 34, 22), GTextAlignmentLeft, GColorWhite);
     y += row_h;
   }
-  // direction + gusts
   char buf[48];
   y += 4;
   snprintf(buf, sizeof(buf), "Wind from the %s", compass(s_wdir));
   draw_text(ctx, buf, FONT_KEY_GOTHIC_18, GRect(m.pad, y, m.w - 2 * m.pad, 22), GTextAlignmentCenter, GColorWhite);
-  snprintf(buf, sizeof(buf), "Gusts up to ~%d mph", s_gust);
-  draw_text(ctx, buf, FONT_KEY_GOTHIC_18_BOLD, GRect(m.pad, y + 24, m.w - 2 * m.pad, 22), GTextAlignmentCenter, wind_color(s_gust - 4));
+  snprintf(buf, sizeof(buf), "Gusts up to ~%d %s", s_gust, s_wunit);
+  draw_text(ctx, buf, FONT_KEY_GOTHIC_18_BOLD, GRect(m.pad, y + 24, m.w - 2 * m.pad, 22), GTextAlignmentCenter, sev_color(sev_at(4)));
 }
 
 static void row(GContext *ctx, Metrics m, int y, const char *label, const char *value, GColor vc) {
@@ -221,26 +288,15 @@ static void row(GContext *ctx, Metrics m, int y, const char *label, const char *
 static void page_cond(GContext *ctx, Metrics m) {
   draw_header(ctx, m, "CONDITIONS");
   if (s_verdict < 0) { draw_message(ctx, m, "No data yet"); return; }
-  char b[40];
+  char b[24];
   int y = m.top + 22;
   const int rh = 25;
 
-  snprintf(b, sizeof(b), "%dF", s_temp);
-  row(ctx, m, y, "Temp", b, s_temp <= 40 || s_temp >= 95 ? COL_CAUTION : GColorWhite); y += rh;
-
-  snprintf(b, sizeof(b), "%s", s_cond);
-  row(ctx, m, y, "Sky", b, GColorWhite); y += rh;
-
-  snprintf(b, sizeof(b), "%d.%02d in", s_precip / 100, s_precip % 100);
-  row(ctx, m, y, "Rain", b, s_precip > 0 ? COL_CAUTION : GColorWhite); y += rh;
-
-  if (s_vis >= 100) snprintf(b, sizeof(b), "%d mi", s_vis / 10);
-  else snprintf(b, sizeof(b), "%d.%d mi", s_vis / 10, s_vis % 10);
-  row(ctx, m, y, "Visibility", b, s_vis < 30 ? COL_CAUTION : GColorWhite); y += rh;
-
-  snprintf(b, sizeof(b), "Kp %d.%d", s_kp / 10, s_kp % 10);
-  row(ctx, m, y, "GPS storm", b, s_kp >= 50 ? COL_CAUTION : GColorWhite); y += rh;
-
+  row(ctx, m, y, "Temp", s_temptxt, value_color(sev_at(0))); y += rh;
+  row(ctx, m, y, "Sky", s_cond, GColorWhite); y += rh;
+  row(ctx, m, y, "Rain", s_preciptxt, value_color(sev_at(1))); y += rh;
+  row(ctx, m, y, "Visibility", s_vistxt, value_color(sev_at(2))); y += rh;
+  row(ctx, m, y, "GPS storm", s_kptxt, value_color(sev_at(3))); y += rh;
   fmt_minutes(s_sunrise, b, sizeof(b));
   row(ctx, m, y, "Sunrise", b, GColorWhite); y += rh;
   fmt_minutes(s_sunset, b, sizeof(b));
@@ -252,14 +308,8 @@ static void page_air(GContext *ctx, Metrics m) {
   if (s_verdict < 0) { draw_message(ctx, m, "No data yet"); return; }
   int bw = m.w - 2 * m.pad;
   int y = m.top + 22;
-
-  GColor c = s_ceil == 0 ? COL_NOGO : (s_ceil < 400 ? COL_CAUTION : COL_GO);
-  char b[32];
-  if (s_ceil == 0) snprintf(b, sizeof(b), "NO FLY");
-  else snprintf(b, sizeof(b), "Max %d ft", s_ceil);
-  draw_text(ctx, b, FONT_KEY_GOTHIC_28_BOLD, GRect(m.pad, y - 4, bw, 34), GTextAlignmentCenter, c);
-  draw_text(ctx, s_ceil >= 400 ? "legal limit, above ground" : "FAA grid ceiling here",
-            FONT_KEY_GOTHIC_14, GRect(m.pad, y + 28, bw, 18), GTextAlignmentCenter, COL_DIM);
+  draw_text(ctx, s_ceiltxt, FONT_KEY_GOTHIC_28_BOLD, GRect(m.pad, y - 4, bw, 34), GTextAlignmentCenter, sev_color(s_ceilsev));
+  draw_text(ctx, s_ceilsub, FONT_KEY_GOTHIC_14, GRect(m.pad, y + 28, bw, 18), GTextAlignmentCenter, COL_DIM);
   draw_list(ctx, m, s_zones, y + 52, m.h - m.bottom - 10);
 }
 
@@ -270,30 +320,31 @@ static void page_alerts(GContext *ctx, Metrics m) {
 }
 
 static void page_hours(GContext *ctx, Metrics m) {
-  draw_header(ctx, m, "NEXT 6 HOURS @ 400 FT");
+  char title[32];
+  snprintf(title, sizeof(title), "NEXT 6 HOURS @ %s", s_hlbl);
+  draw_header(ctx, m, title);
   if (!s_have_hours) { draw_message(ctx, m, "No data yet"); return; }
   int area_w = m.w - 2 * m.pad;
   int col_w = area_w / 6;
   int base_y = m.h - m.bottom - 56;
   int max_h = base_y - (m.top + 50);
-  // best window text
   int best = -1;
   for (int i = 0; i < 6; i++) { if (s_hv[i] == 0) { best = i; break; } }
   char b[40];
-  if (best < 0) snprintf(b, sizeof(b), "No good window soon");
-  else if (best == 0) snprintf(b, sizeof(b), "Good right now");
+  if (best < 0) snprintf(b, sizeof(b), "No good weather soon");
+  else if (best == 0) snprintf(b, sizeof(b), "Weather OK now");
   else {
     int hr = (s_hstart + best) % 24;
     int h12 = hr % 12; if (h12 == 0) h12 = 12;
-    if (clock_is_24h_style()) snprintf(b, sizeof(b), "Best from %02d:00", hr);
-    else snprintf(b, sizeof(b), "Best from %d %s", h12, hr < 12 ? "AM" : "PM");
+    if (clock_is_24h_style()) snprintf(b, sizeof(b), "Weather OK from %02d:00", hr);
+    else snprintf(b, sizeof(b), "Weather OK from %d %s", h12, hr < 12 ? "AM" : "PM");
   }
   draw_text(ctx, b, FONT_KEY_GOTHIC_18_BOLD, GRect(m.pad, m.top + 20, area_w, 22), GTextAlignmentCenter,
             best < 0 ? COL_NOGO : (best == 0 ? COL_GO : COL_CAUTION));
 
   for (int i = 0; i < 6; i++) {
     int x = m.pad + i * col_w;
-    int hgt = s_hw[i] * max_h / 30;
+    int hgt = s_wmax > 0 ? s_hw[i] * max_h / s_wmax : 3;
     if (hgt > max_h) hgt = max_h;
     if (hgt < 3) hgt = 3;
     graphics_context_set_fill_color(ctx, sev_color(s_hv[i]));
@@ -307,7 +358,8 @@ static void page_hours(GContext *ctx, Metrics m) {
     else { int h12 = hr % 12; if (h12 == 0) h12 = 12; snprintf(t, sizeof(t), "%d%c", h12, hr < 12 ? 'a' : 'p'); }
     draw_text(ctx, t, FONT_KEY_GOTHIC_14, GRect(x, base_y + 2, col_w, 18), GTextAlignmentCenter, COL_DIM);
   }
-  draw_text(ctx, "bar = wind mph", FONT_KEY_GOTHIC_14, GRect(m.pad, base_y + 22, area_w, 18), GTextAlignmentCenter, COL_DIM);
+  snprintf(b, sizeof(b), "bar = wind %s", s_wunit);
+  draw_text(ctx, b, FONT_KEY_GOTHIC_14, GRect(m.pad, base_y + 22, area_w, 18), GTextAlignmentCenter, COL_DIM);
 }
 
 static void canvas_update(Layer *layer, GContext *ctx) {
@@ -377,36 +429,52 @@ static void copy_str(char *dst, size_t n, Tuple *t) {
   }
 }
 
+#define GET_INT(KEY, VAR) do { Tuple *_t = dict_find(it, MESSAGE_KEY_##KEY); if (_t) VAR = (int)_t->value->int32; } while (0)
+
 static void inbox_received(DictionaryIterator *it, void *context) {
   Tuple *t;
-  if ((t = dict_find(it, MESSAGE_KEY_STATUS))) copy_str(s_status, sizeof(s_status), t);
-  if ((t = dict_find(it, MESSAGE_KEY_VERDICT))) { s_verdict = (int)t->value->int32; s_status[0] = 0; }
+  copy_str(s_status, sizeof(s_status), dict_find(it, MESSAGE_KEY_STATUS));
+
+  // Alert settings come first so the verdict below uses them
+  if ((t = dict_find(it, MESSAGE_KEY_SOUND))) s_sound = t->value->int32 != 0;
+  if ((t = dict_find(it, MESSAGE_KEY_VIBE))) s_vibe = t->value->int32 != 0;
+  GET_INT(VOLUME, s_volume);
+
   copy_str(s_reason, sizeof(s_reason), dict_find(it, MESSAGE_KEY_REASON));
-  if ((t = dict_find(it, MESSAGE_KEY_W0))) s_w0 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W100))) s_w100 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W200))) s_w200 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W300))) s_w300 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_W400))) s_w400 = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_GUST))) s_gust = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_WDIR))) s_wdir = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_TEMP))) s_temp = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_PRECIP))) s_precip = (int)t->value->int32;
+  if ((t = dict_find(it, MESSAGE_KEY_WIND)) && t->length >= 5) memcpy(s_wind, t->value->data, 5);
+  copy_str(s_wlbl, sizeof(s_wlbl), dict_find(it, MESSAGE_KEY_WLBL));
+  copy_str(s_wunit, sizeof(s_wunit), dict_find(it, MESSAGE_KEY_WUNIT));
+  GET_INT(WMAX, s_wmax);
+  GET_INT(WCAUT, s_wcaut);
+  GET_INT(WNOGO, s_wnogo);
+  GET_INT(GUST, s_gust);
+  GET_INT(WDIR, s_wdir);
+  copy_str(s_stat, sizeof(s_stat), dict_find(it, MESSAGE_KEY_STAT));
+  copy_str(s_sevs, sizeof(s_sevs), dict_find(it, MESSAGE_KEY_SEVS));
+
+  copy_str(s_temptxt, sizeof(s_temptxt), dict_find(it, MESSAGE_KEY_TEMPTXT));
+  copy_str(s_preciptxt, sizeof(s_preciptxt), dict_find(it, MESSAGE_KEY_PRECIPTXT));
+  copy_str(s_vistxt, sizeof(s_vistxt), dict_find(it, MESSAGE_KEY_VISTXT));
+  copy_str(s_kptxt, sizeof(s_kptxt), dict_find(it, MESSAGE_KEY_KPTXT));
   copy_str(s_cond, sizeof(s_cond), dict_find(it, MESSAGE_KEY_COND));
-  if ((t = dict_find(it, MESSAGE_KEY_VIS))) s_vis = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_CLOUD))) s_cloud = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_KP))) s_kp = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_SUNRISE))) s_sunrise = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_SUNSET))) s_sunset = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_NOWMIN))) s_nowmin = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_CEIL))) s_ceil = (int)t->value->int32;
-  if ((t = dict_find(it, MESSAGE_KEY_HSTART))) s_hstart = (int)t->value->int32;
+  GET_INT(SUNRISE, s_sunrise);
+  GET_INT(SUNSET, s_sunset);
+  copy_str(s_ceiltxt, sizeof(s_ceiltxt), dict_find(it, MESSAGE_KEY_CEILTXT));
+  copy_str(s_ceilsub, sizeof(s_ceilsub), dict_find(it, MESSAGE_KEY_CEILSUB));
+  GET_INT(CEILSEV, s_ceilsev);
+  copy_str(s_hlbl, sizeof(s_hlbl), dict_find(it, MESSAGE_KEY_HLBL));
+  GET_INT(HSTART, s_hstart);
   if ((t = dict_find(it, MESSAGE_KEY_HW)) && t->length >= 6) { memcpy(s_hw, t->value->data, 6); s_have_hours = true; }
   if ((t = dict_find(it, MESSAGE_KEY_HV)) && t->length >= 6) memcpy(s_hv, t->value->data, 6);
   copy_str(s_zones, sizeof(s_zones), dict_find(it, MESSAGE_KEY_ZONES));
   copy_str(s_alerts, sizeof(s_alerts), dict_find(it, MESSAGE_KEY_ALERTS));
 
+  if ((t = dict_find(it, MESSAGE_KEY_VERDICT))) {
+    s_verdict = (int)t->value->int32;
+    s_status[0] = 0;
+    play_alert(s_verdict);
+  }
   if (s_canvas) layer_mark_dirty(s_canvas);
-  if (dict_find(it, MESSAGE_KEY_VERDICT) && s_verdict >= 1) vibes_short_pulse();
 }
 
 static void inbox_dropped(AppMessageResult reason, void *context) {
@@ -435,8 +503,6 @@ static void window_unload(Window *w) {
 
 static void init(void) {
   snprintf(s_status, sizeof(s_status), "Starting...");
-  strcpy(s_zones, "");
-  strcpy(s_alerts, "");
   s_window = window_create();
   window_set_background_color(s_window, BG_COLOR);
   window_set_click_config_provider(s_window, click_config);

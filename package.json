@@ -2,26 +2,94 @@
   "name": "Should I Fly?",
   "author": "Brooman Inks",
   "version": "1.0.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@rebble/clay": "^1.1.0"
+  },
   "pebble": {
     "displayName": "Should I Fly?",
     "uuid": "38588757-378f-434c-9819-e7134663a193",
     "sdkVersion": "3",
     "enableMultiJS": true,
-    "targetPlatforms": ["emery", "gabbro"],
-    "watchapp": { "watchface": false },
-    "capabilities": ["location"],
+    "targetPlatforms": [
+      "emery",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "capabilities": [
+      "location",
+      "configurable"
+    ],
     "messageKeys": [
-      "REQUEST", "STATUS", "VERDICT", "REASON",
-      "W0", "W100", "W200", "W300", "W400", "GUST", "WDIR", "TEMP",
-      "PRECIP", "COND", "VIS", "CLOUD", "KP", "SUNRISE", "SUNSET", "NOWMIN", "CEIL",
-      "HSTART", "HW", "HV", "ZONES", "ALERTS"
+      "REQUEST",
+      "STATUS",
+      "VERDICT",
+      "REASON",
+      "WIND",
+      "WLBL",
+      "WUNIT",
+      "WMAX",
+      "WCAUT",
+      "WNOGO",
+      "GUST",
+      "WDIR",
+      "STAT",
+      "SEVS",
+      "TEMPTXT",
+      "PRECIPTXT",
+      "VISTXT",
+      "KPTXT",
+      "COND",
+      "SUNRISE",
+      "SUNSET",
+      "CEILTXT",
+      "CEILSUB",
+      "CEILSEV",
+      "HSTART",
+      "HW",
+      "HV",
+      "HLBL",
+      "ZONES",
+      "ALERTS",
+      "SOUND",
+      "VOLUME",
+      "VIBE",
+      "SET_WUNIT",
+      "SET_TUNIT",
+      "SET_DUNIT",
+      "SET_MAXALT",
+      "SET_RADIUS",
+      "SET_NIGHT",
+      "SET_STADIUM",
+      "SET_WCAUT",
+      "SET_WNOGO",
+      "SET_GCAUT",
+      "SET_GNOGO",
+      "SET_COLDC",
+      "SET_COLDN",
+      "SET_HOTC",
+      "SET_HOTN",
+      "SET_VISC",
+      "SET_VISN",
+      "SET_KPC",
+      "SET_KPN",
+      "SET_VIBE",
+      "SET_SOUND",
+      "SET_VOLUME"
     ],
     "resources": {
       "media": [
-        { "type": "bitmap", "name": "MENU_ICON", "file": "images/menu_icon.png", "menuIcon": true }
+        {
+          "type": "bitmap",
+          "name": "MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        }
       ]
     }
   }

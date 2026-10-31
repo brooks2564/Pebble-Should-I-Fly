@@ -14,16 +14,18 @@ pebble install --phone 192.168.0.228   # IPs drift, see memory
 ```
 
 ## Architecture
-- `src/pkjs/index.js` does everything smart: geolocation, fetches (Open-Meteo, NOAA Kp, FAA ArcGIS, FAA TFR WFS), point-in-polygon and distance math, and the verdict. It sends 5 small AppMessages in sequence (send queue, one at a time).
+- `src/pkjs/index.js` does everything smart: Clay settings, geolocation, fetches (Open-Meteo, NOAA Kp, FAA ArcGIS, FAA TFR WFS), point-in-polygon and distance math, unit conversion, and the verdict. It sends 5 small AppMessages in sequence (send queue, one at a time); the verdict message (m1, with SOUND/VOLUME/VIBE) goes last because it triggers vibration and sound on the watch.
+- Settings: `src/pkjs/config.json` (Clay, `@rebble/clay`). Keys are `SET_*`; every one must also be in package.json messageKeys. JS reads them from localStorage `clay-settings` (`loadSettings()`); a `webviewclosed` listener re-runs the fetch. Limits are stored in mph/F/mi/ft regardless of display units.
+- The watch is dumb: it displays pre-formatted strings and severities from the phone. Sound uses `speaker_play_notes` (GO chime, CAUTION descending triangle, NO-GO square buzzer), skipped when `speaker_is_muted()`.
 - `src/c/main.c` only displays. One canvas layer, 6 pages, UP/DOWN or swipe to change page, SELECT or a touchscreen tap sends REQUEST to refresh. Background is pure black.
 - List text format sent to the watch: `<sev digit><title>\t<detail>` per line (0 info, 1 caution, 2 no-go).
-- Verdict limits live in `LIM` at the top of the pkjs file.
+- Wind rows use linear interpolation between the model heights 10/80/120/180 m (`windAt`).
 
 ## Message keys
-REQUEST, STATUS, VERDICT, REASON, W0, W100, W200, W300, W400, GUST, WDIR, TEMP, PRECIP, COND, VIS, CLOUD, KP, SUNRISE, SUNSET, NOWMIN, CEIL, HSTART, HW, HV, ZONES, ALERTS (see package.json).
+See package.json (display keys plus `SET_*` settings keys). After changing keys run `pebble clean` before `pebble build`.
 
 ## Testing without a phone
-`node /tmp/harness.js <lat> <lon>` style shim: fake `XMLHttpRequest` (via fetch), `navigator.geolocation`, `Pebble` and eval `src/pkjs/index.js`. Good spots: Addison TX (32.97 -96.84, Class D, ceiling 0), Washington DC (38.8895 -77.0353, many zones).
+Node shim (not committed): fake `XMLHttpRequest` (via fetch), `navigator.geolocation` (use `Object.defineProperty(globalThis,'navigator',...)` on Node 24), `localStorage` returning a fake `clay-settings` JSON, `Pebble`, and run `src/pkjs/index.js` inside `new Function('require', src)` with a stub require. Good spots: Addison TX (32.97 -96.84, Class D, ceiling 0), Washington DC (38.8895 -77.0353, many zones).
 
 ## Gotchas
 - Emulator "While your Pebble was off wakeup events" dialog blocks the app: delete `~/.pebble-sdk/4.33.1/<platform>/qemu_spi_flash.bin` and reinstall.

@@ -1,0 +1,288 @@
+[
+  {
+    "type": "heading",
+    "defaultValue": "Should I Fly?"
+  },
+  {
+    "type": "text",
+    "defaultValue": "Advisory only. Always confirm in B4UFLY or another official FAA source before you fly."
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Units"
+      },
+      {
+        "type": "select",
+        "messageKey": "SET_WUNIT",
+        "label": "Wind speed",
+        "defaultValue": "mph",
+        "options": [
+          {
+            "label": "mph",
+            "value": "mph"
+          },
+          {
+            "label": "knots",
+            "value": "kt"
+          },
+          {
+            "label": "m/s",
+            "value": "ms"
+          },
+          {
+            "label": "km/h",
+            "value": "kmh"
+          }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "SET_TUNIT",
+        "label": "Temperature",
+        "defaultValue": "F",
+        "options": [
+          {
+            "label": "Fahrenheit",
+            "value": "F"
+          },
+          {
+            "label": "Celsius",
+            "value": "C"
+          }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "SET_DUNIT",
+        "label": "Distance and altitude",
+        "defaultValue": "imperial",
+        "options": [
+          {
+            "label": "Feet and miles",
+            "value": "imperial"
+          },
+          {
+            "label": "Meters and kilometers",
+            "value": "metric"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Flight"
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_MAXALT",
+        "label": "Max flight altitude (ft)",
+        "defaultValue": 400,
+        "min": 100,
+        "max": 500,
+        "step": 10
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_RADIUS",
+        "label": "Airspace search radius (mi)",
+        "defaultValue": 5,
+        "min": 1,
+        "max": 10,
+        "step": 1
+      },
+      {
+        "type": "toggle",
+        "messageKey": "SET_NIGHT",
+        "label": "Warn about night flying",
+        "defaultValue": true
+      },
+      {
+        "type": "toggle",
+        "messageKey": "SET_STADIUM",
+        "label": "Warn about stadiums",
+        "defaultValue": true
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Wind limits (mph)"
+      },
+      {
+        "type": "text",
+        "defaultValue": "Limits use mph, F, miles and feet, whatever units you display."
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_WCAUT",
+        "label": "Wind: caution at",
+        "defaultValue": 15,
+        "min": 5,
+        "max": 40,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_WNOGO",
+        "label": "Wind: no-go at",
+        "defaultValue": 24,
+        "min": 5,
+        "max": 50,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_GCAUT",
+        "label": "Gusts: caution at",
+        "defaultValue": 20,
+        "min": 5,
+        "max": 50,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_GNOGO",
+        "label": "Gusts: no-go at",
+        "defaultValue": 30,
+        "min": 5,
+        "max": 60,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Temperature limits (F)"
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_COLDC",
+        "label": "Cold: caution at or below",
+        "defaultValue": 40,
+        "min": -10,
+        "max": 60,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_COLDN",
+        "label": "Cold: no-go at or below",
+        "defaultValue": 14,
+        "min": -30,
+        "max": 50,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_HOTC",
+        "label": "Hot: caution at or above",
+        "defaultValue": 95,
+        "min": 70,
+        "max": 120,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_HOTN",
+        "label": "Hot: no-go at or above",
+        "defaultValue": 104,
+        "min": 80,
+        "max": 130,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Visibility and GPS"
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_VISC",
+        "label": "Visibility: caution below (mi)",
+        "defaultValue": 3,
+        "min": 1,
+        "max": 10,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_VISN",
+        "label": "Visibility: no-go below (mi)",
+        "defaultValue": 1,
+        "min": 1,
+        "max": 5,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_KPC",
+        "label": "Kp index: caution at",
+        "defaultValue": 5,
+        "min": 3,
+        "max": 9,
+        "step": 1
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_KPN",
+        "label": "Kp index: no-go at",
+        "defaultValue": 7,
+        "min": 4,
+        "max": 9,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Alerts"
+      },
+      {
+        "type": "toggle",
+        "messageKey": "SET_VIBE",
+        "label": "Vibrate on caution / no-go",
+        "defaultValue": true
+      },
+      {
+        "type": "toggle",
+        "messageKey": "SET_SOUND",
+        "label": "Play sounds",
+        "defaultValue": false,
+        "description": "Chime for GO, two-tone for CAUTION, buzzer for NO-GO. Silent if your watch is muted or in Quiet Time."
+      },
+      {
+        "type": "slider",
+        "messageKey": "SET_VOLUME",
+        "label": "Sound volume",
+        "defaultValue": 60,
+        "min": 10,
+        "max": 100,
+        "step": 5
+      }
+    ]
+  },
+  {
+    "type": "submit",
+    "defaultValue": "Save"
+  }
+]

@@ -2,18 +2,58 @@
 // Weather: Open-Meteo. Space weather: NOAA SWPC. Airspace: FAA public ArcGIS + FAA TFR WFS.
 // Advisory only - always verify in the FAA B4UFLY app / official sources before flying.
 
-var ARC = 'https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/';
-var SEARCH_MI = 5;      // look for airspace zones this far away
-var MAX_ALT_FT = 400;   // legal ceiling (AGL) for the drone
+var Clay = require('@rebble/clay');
+var clayConfig = require('./config.json');
+var clay = new Clay(clayConfig); // saves settings to localStorage 'clay-settings'
 
-// Weather limits (mph). Edit to taste.
-var LIM = {
-  windCaution: 15, windNoGo: 24,
-  gustCaution: 20, gustNoGo: 30,
-  tempCautionLow: 40, tempNoGoLow: 14, tempCautionHigh: 95, tempNoGoHigh: 104,
-  visCaution: 3, visNoGo: 1,
-  kpCaution: 5, kpNoGo: 7
+var ARC = 'https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/';
+var SEARCH_MI = 5;      // search radius for airspace zones (setting)
+
+var DEFAULTS = {
+  SET_WUNIT: 'mph', SET_TUNIT: 'F', SET_DUNIT: 'imperial',
+  SET_MAXALT: 400, SET_RADIUS: 5, SET_NIGHT: true, SET_STADIUM: true,
+  SET_WCAUT: 15, SET_WNOGO: 24, SET_GCAUT: 20, SET_GNOGO: 30,
+  SET_COLDC: 40, SET_COLDN: 14, SET_HOTC: 95, SET_HOTN: 104,
+  SET_VISC: 3, SET_VISN: 1, SET_KPC: 5, SET_KPN: 7,
+  SET_VIBE: true, SET_SOUND: false, SET_VOLUME: 60
 };
+var S = {};
+
+function loadSettings() {
+  var cs = {};
+  try { cs = JSON.parse(localStorage.getItem('clay-settings') || '{}') || {}; } catch (e) { cs = {}; }
+  for (var k in DEFAULTS) {
+    var v = (cs[k] === undefined || cs[k] === null || cs[k] === '') ? DEFAULTS[k] : cs[k];
+    if (typeof DEFAULTS[k] === 'number') { v = Number(v); if (isNaN(v)) v = DEFAULTS[k]; }
+    else if (typeof DEFAULTS[k] === 'boolean') { v = (v === true || v === 'true' || v === 1 || v === '1'); }
+    else v = String(v);
+    S[k] = v;
+  }
+  SEARCH_MI = S.SET_RADIUS;
+}
+loadSettings();
+
+/* ---------- units ---------- */
+var WLABEL = { mph: 'mph', kt: 'kt', ms: 'm/s', kmh: 'km/h' };
+function isMetric() { return S.SET_DUNIT === 'metric'; }
+function wconv(mph) {
+  switch (S.SET_WUNIT) {
+    case 'kt': return mph * 0.868976;
+    case 'ms': return mph * 0.44704;
+    case 'kmh': return mph * 1.609344;
+    default: return mph;
+  }
+}
+function wr(mph) { return Math.round(wconv(mph)); }
+function fmtWind(mph) { return wr(mph) + ' ' + WLABEL[S.SET_WUNIT]; }
+function fmtAlt(ft) { return isMetric() ? (Math.round(ft * 0.3048 / 5) * 5) + ' m' : Math.round(ft) + ' ft'; }
+function fmtTemp(f) { return Math.round(S.SET_TUNIT === 'C' ? (f - 32) * 5 / 9 : f) + S.SET_TUNIT; }
+function fmtLen(mi) { // miles -> display distance
+  var v = isMetric() ? mi * 1.609344 : mi;
+  var r = v < 10 ? Math.round(v * 10) / 10 : Math.round(v);
+  return r + (isMetric() ? ' km' : ' mi');
+}
+function fmtRain(inch) { return isMetric() ? (inch * 25.4).toFixed(1) + ' mm' : inch.toFixed(2) + ' in'; }
 
 var DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 var sending = false;
@@ -98,7 +138,7 @@ function cleanName(s) {
   return titleCase(s.replace(/\s+/g, ' ').trim());
 }
 function trunc(s, n) { s = s || ''; return s.length > n ? s.substring(0, n - 1) + '.' : s; }
-function fmtDist(d) { return d < 0.05 ? 'here' : (d < 10 ? d.toFixed(1) : Math.round(d)) + ' mi'; }
+function fmtDist(d) { return d < 0.05 ? 'here' : fmtLen(d); }
 
 /* ---------- weather ---------- */
 function minutes(iso) { return parseInt(iso.substr(11, 2), 10) * 60 + parseInt(iso.substr(14, 2), 10); }
@@ -115,12 +155,20 @@ function wcode(c) {
   if (c >= 95) return 'Thunderstorm';
   return 'Cloudy';
 }
-// Linear interpolation of wind between two model heights (metres)
+// Wind at height h (metres) from the model levels 10/80/120/180 m (linear interpolation)
 function lerp(v0, h0, v1, h1, h) { return v0 + (v1 - v0) * (h - h0) / (h1 - h0); }
-function gust120(w120, w10, g10) { return Math.round(w120 + Math.max(0, g10 - w10)); }
-function hourVerdict(w120, g, precip, code) {
-  if (w120 >= LIM.windNoGo || g >= LIM.gustNoGo || (code >= 95) || precip >= 0.05) return 2;
-  if (w120 >= LIM.windCaution || g >= LIM.gustCaution || precip > 0) return 1;
+function windAt(l, h) {
+  var pts = [[10, l[0]], [80, l[1]], [120, l[2]], [180, l[3]]];
+  if (h <= pts[0][0]) return pts[0][1];
+  for (var i = 1; i < pts.length; i++) {
+    if (h <= pts[i][0]) return lerp(pts[i - 1][1], pts[i - 1][0], pts[i][1], pts[i][0], h);
+  }
+  return pts[3][1];
+}
+function gustEst(wTop, w10, g10) { return Math.round(wTop + Math.max(0, g10 - w10)); }
+function hourVerdict(wTop, g, precip, code) {
+  if (wTop >= S.SET_WNOGO || g >= S.SET_GNOGO || code >= 95 || precip >= 0.05) return 2;
+  if (wTop >= S.SET_WCAUT || g >= S.SET_GCAUT || precip > 0) return 1;
   return 0;
 }
 
@@ -128,7 +176,7 @@ function fetchWeather(lat, lon, cb) {
   var url = 'https://api.open-meteo.com/v1/forecast?' + qs({
     latitude: lat, longitude: lon,
     current: 'temperature_2m,apparent_temperature,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_speed_80m,wind_speed_120m,wind_speed_180m,wind_direction_10m,wind_gusts_10m',
-    hourly: 'wind_speed_10m,wind_speed_120m,wind_gusts_10m,precipitation,weather_code,visibility',
+    hourly: 'wind_speed_10m,wind_speed_80m,wind_speed_120m,wind_speed_180m,wind_gusts_10m,precipitation,weather_code,visibility',
     daily: 'sunrise,sunset', temperature_unit: 'fahrenheit', wind_speed_unit: 'mph',
     precipitation_unit: 'inch', timezone: 'auto', forecast_days: 2
   });
@@ -225,7 +273,7 @@ function buildAirspace(lat, lon, cb) {
     done();
   });
   // 5) Stadiums (3 mi restriction during events)
-  arcQuery('Stadiums', lat, lon, '1=1', 'NAME', true, function (fs) {
+  if (!S.SET_STADIUM) { okFlags.std = true; done(); } else arcQuery('Stadiums', lat, lon, '1=1', 'NAME', true, function (fs) {
     if (fs) {
       okFlags.std = true;
       fs.forEach(function (f) {
@@ -251,39 +299,43 @@ function assess(w, kp, air) {
   var c = w.current, h = w.hourly;
   var hi = 0;
   for (var i = 0; i < h.time.length; i++) { if (h.time[i].substr(0, 13) === c.time.substr(0, 13)) { hi = i; break; } }
-  var vis = (h.visibility[hi] || 16000) / 1609.34;
-  var w120 = c.wind_speed_120m, w10 = c.wind_speed_10m;
-  var g = gust120(w120, w10, c.wind_gusts_10m);
+  var vis = (h.visibility[hi] || 16000) / 1609.34;   // miles
+  var maxAlt = S.SET_MAXALT, topM = maxAlt * 0.3048;
+  var lv = [c.wind_speed_10m, c.wind_speed_80m, c.wind_speed_120m, c.wind_speed_180m];
+  var wTop = windAt(lv, topM), w10 = c.wind_speed_10m;
+  var g = gustEst(wTop, w10, c.wind_gusts_10m);
   var precip = c.precipitation, code = c.weather_code;
   var t = Math.round(c.temperature_2m);
   var now = minutes(c.time), rise = minutes(w.daily.sunrise[0]), set = minutes(w.daily.sunset[0]);
+  var atTop = ' at ' + fmtAlt(maxAlt);
 
-  if (w120 >= LIM.windNoGo) add(2, 'Wind too strong', Math.round(w120) + ' mph at 400 ft');
-  else if (w120 >= LIM.windCaution) add(1, 'Windy aloft', Math.round(w120) + ' mph at 400 ft');
-  if (g >= LIM.gustNoGo) add(2, 'Dangerous gusts', 'Gusts up to ~' + g + ' mph');
-  else if (g >= LIM.gustCaution) add(1, 'Gusty', 'Gusts up to ~' + g + ' mph');
+  if (wTop >= S.SET_WNOGO) add(2, 'Wind too strong', fmtWind(wTop) + atTop);
+  else if (wTop >= S.SET_WCAUT) add(1, 'Windy aloft', fmtWind(wTop) + atTop);
+  if (g >= S.SET_GNOGO) add(2, 'Dangerous gusts', 'Gusts up to ~' + fmtWind(g));
+  else if (g >= S.SET_GCAUT) add(1, 'Gusty', 'Gusts up to ~' + fmtWind(g));
   if (code >= 95) add(2, 'Thunderstorm', 'Do not fly');
   else if (precip >= 0.05) add(2, wcode(code), 'Drones are not waterproof');
   else if (precip > 0 || (code >= 51 && code <= 86)) add(1, wcode(code), 'Light precipitation');
-  if (t <= LIM.tempNoGoLow) add(2, 'Too cold', t + 'F - battery failure risk');
-  else if (t <= LIM.tempCautionLow) add(1, 'Cold battery', t + 'F - warm batteries first');
-  if (t >= LIM.tempNoGoHigh) add(2, 'Too hot', t + 'F - overheating risk');
-  else if (t >= LIM.tempCautionHigh) add(1, 'Hot', t + 'F - watch motor/battery temp');
-  if (vis < LIM.visNoGo) add(2, 'Low visibility', vis.toFixed(1) + ' mi - need 3 mi (VLOS)');
-  else if (vis < LIM.visCaution) add(1, 'Reduced visibility', vis.toFixed(1) + ' mi - need 3 mi');
+  if (t <= S.SET_COLDN) add(2, 'Too cold', fmtTemp(t) + ' - battery failure risk');
+  else if (t <= S.SET_COLDC) add(1, 'Cold battery', fmtTemp(t) + ' - warm batteries first');
+  if (t >= S.SET_HOTN) add(2, 'Too hot', fmtTemp(t) + ' - overheating risk');
+  else if (t >= S.SET_HOTC) add(1, 'Hot', fmtTemp(t) + ' - watch motor/battery temp');
+  if (vis < S.SET_VISN) add(2, 'Low visibility', fmtLen(vis) + ' - need ' + fmtLen(3) + ' (VLOS)');
+  else if (vis < S.SET_VISC) add(1, 'Reduced visibility', fmtLen(vis) + ' - need ' + fmtLen(3));
   if (code === 45 || code === 48) add(1, 'Fog', 'Keep your drone in sight');
-  if (kp >= LIM.kpNoGo) add(2, 'Geomagnetic storm', 'Kp ' + kp.toFixed(0) + ' - GPS unreliable');
-  else if (kp >= LIM.kpCaution) add(1, 'Geomagnetic activity', 'Kp ' + kp.toFixed(0) + ' - GPS may drift');
-  if (now < rise - 30 || now > set + 30) add(1, 'Night flight', 'Anti-collision light required');
-  else if (now < rise || now > set) add(0, 'Twilight', 'Anti-collision light required');
+  if (kp >= S.SET_KPN) add(2, 'Geomagnetic storm', 'Kp ' + kp.toFixed(0) + ' - GPS unreliable');
+  else if (kp >= S.SET_KPC) add(1, 'Geomagnetic activity', 'Kp ' + kp.toFixed(0) + ' - GPS may drift');
+  if (S.SET_NIGHT) {
+    if (now < rise - 30 || now > set + 30) add(1, 'Night flight', 'Anti-collision light required');
+    else if (now < rise || now > set) add(0, 'Twilight', 'Anti-collision light required');
+  }
 
-  // airspace -> zones lines
+  // airspace -> zone lines
   var zones = air.zones.slice().sort(function (a, b) {
     if (a.info.inside !== b.info.inside) return a.info.inside ? -1 : 1;
     return a.info.dist - b.info.dist;
   });
   var zlines = [], zseen = {};
-  var ceilTxt = '';
   var inCtrl = false;
   zones.forEach(function (z) {
     var i = z.info, sev = 0, loc = i.inside ? 'inside' : fmtDist(i.dist) + ' ' + i.dir;
@@ -291,13 +343,12 @@ function assess(w, kp, air) {
     else if (z.kind === 'std') sev = i.inside ? 1 : 0;
     else if (z.kind === 'cls' && i.inside) {
       inCtrl = true;
-      if (air.ceil === 0) sev = 2; else if (air.ceil > 0 && air.ceil < MAX_ALT_FT) sev = 1; else if (air.ceil < 0) sev = 1; else sev = 0;
+      if (air.ceil === 0) sev = 2; else if (air.ceil > 0 && air.ceil < maxAlt) sev = 1; else if (air.ceil < 0) sev = 1; else sev = 0;
     }
     z.sev = sev;
     var zk = z.label + z.name + loc;
     if (zlines.length < 5 && !zseen[zk]) { zseen[zk] = 1; zlines.push('' + sev + trunc(z.label, 11) + ' ' + loc + '\t' + trunc(z.name, 30)); }
   });
-  // dedupe / drop class zones that duplicate nothing special; add alerts from zones
   zones.forEach(function (z) {
     if (z.sev > 0) {
       var det = z.name + (z.info.inside ? ' (inside)' : ', ' + fmtDist(z.info.dist) + ' ' + z.info.dir);
@@ -305,11 +356,13 @@ function assess(w, kp, air) {
       add(z.sev, txt, det);
     }
   });
+  var ceilSev = 0;
   if (air.ceil >= 0) {
-    if (air.ceil === 0) add(2, 'No-fly grid', 'FAA grid ceiling 0 ft - need authorization');
-    else if (air.ceil < MAX_ALT_FT) add(1, 'Altitude ceiling', 'Max ' + air.ceil + ' ft AGL without approval');
+    if (air.ceil === 0) { add(2, 'No-fly grid', 'Ceiling 0 - need authorization'); ceilSev = 2; }
+    else if (air.ceil < maxAlt) { add(1, 'Altitude ceiling', 'Max ' + fmtAlt(air.ceil) + ' AGL without approval'); ceilSev = 1; }
   } else if (inCtrl) {
     add(1, 'Authorization needed', 'Controlled airspace - use LAANC');
+    ceilSev = 1;
   }
   if (!air.ok) add(1, 'Airspace data incomplete', 'Missing: ' + (air.missing || []).join(', '));
   var seen = {};
@@ -319,26 +372,46 @@ function assess(w, kp, air) {
   var verdict = 0;
   alerts.forEach(function (a) { if (a.sev > verdict) verdict = a.sev; });
   var reason = verdict === 0 ? 'Conditions look good' : alerts[0].text;
-  if (verdict > 0 && alerts[0].detail) reason = alerts[0].text;
 
-  // 6-hour window
+  // 6-hour window (wind at the max altitude)
   var hw = [], hv = [];
   for (var k = 0; k < 6; k++) {
     var ix = Math.min(hi + k, h.time.length - 1);
-    var ww = h.wind_speed_120m[ix], gg = gust120(ww, h.wind_speed_10m[ix], h.wind_gusts_10m[ix]);
-    hw.push(Math.min(255, Math.round(ww)));
+    var hl = [h.wind_speed_10m[ix], h.wind_speed_80m[ix], h.wind_speed_120m[ix], h.wind_speed_180m[ix]];
+    var ww = windAt(hl, topM), gg = gustEst(ww, h.wind_speed_10m[ix], h.wind_gusts_10m[ix]);
+    hw.push(Math.min(255, wr(ww)));
     hv.push(hourVerdict(ww, gg, h.precipitation[ix], h.weather_code[ix]));
   }
+
+  // wind rows, top altitude first
+  var wind = [], lbl = [];
+  for (var r = 0; r < 5; r++) {
+    var ft = maxAlt * (4 - r) / 4;
+    wind.push(Math.min(255, wr(windAt(lv, ft * 0.3048))));
+    lbl.push(fmtAlt(ft));
+  }
+  var vsev = vis < S.SET_VISN ? 2 : (vis < S.SET_VISC ? 1 : 0);
+  var tsev = (t <= S.SET_COLDN || t >= S.SET_HOTN) ? 2 : ((t <= S.SET_COLDC || t >= S.SET_HOTC) ? 1 : 0);
+  var ksev = kp >= S.SET_KPN ? 2 : (kp >= S.SET_KPC ? 1 : 0);
+  var gsev = g >= S.SET_GNOGO ? 2 : (g >= S.SET_GCAUT ? 1 : 0);
+  var csev = (precip >= 0.05 || code >= 95) ? 2 : ((precip > 0) ? 1 : 0);
+  var effCeil = air.ceil < 0 ? maxAlt : Math.min(air.ceil, maxAlt);
+
   return {
     verdict: verdict, reason: reason, alerts: alerts, zlines: zlines, hw: hw, hv: hv,
-    vals: {
-      W0: Math.round(w10), W100: Math.round(lerp(w10, 10, c.wind_speed_80m, 80, 30.48)),
-      W200: Math.round(lerp(w10, 10, c.wind_speed_80m, 80, 60.96)),
-      W300: Math.round(lerp(c.wind_speed_80m, 80, w120, 120, 91.44)), W400: Math.round(w120),
-      GUST: g, WDIR: c.wind_direction_10m, TEMP: t, PRECIP: Math.round(precip * 100), COND: wcode(code),
-      VIS: Math.round(vis * 10), CLOUD: c.cloud_cover, KP: Math.round(kp * 10),
-      SUNRISE: rise, SUNSET: set, NOWMIN: now, CEIL: air.ceil < 0 ? MAX_ALT_FT : Math.min(air.ceil, MAX_ALT_FT),
-      HSTART: Math.floor(now / 60)
+    m1: {
+      VERDICT: verdict, REASON: trunc(reason, 40), WIND: wind, WLBL: lbl.join('|'), WUNIT: WLABEL[S.SET_WUNIT],
+      WMAX: wr(30), WCAUT: wr(S.SET_WCAUT), WNOGO: wr(S.SET_WNOGO), GUST: wr(g), WDIR: c.wind_direction_10m,
+      STAT: fmtWind(wTop) + ' @ ' + fmtAlt(maxAlt) + '  |  ' + fmtTemp(t),
+      SEVS: '' + tsev + csev + vsev + ksev + gsev,
+      SOUND: S.SET_SOUND ? 1 : 0, VOLUME: S.SET_VOLUME, VIBE: S.SET_VIBE ? 1 : 0
+    },
+    m2: {
+      TEMPTXT: fmtTemp(t), PRECIPTXT: fmtRain(precip), VISTXT: fmtLen(vis), KPTXT: 'Kp ' + kp.toFixed(1), COND: wcode(code),
+      SUNRISE: rise, SUNSET: set,
+      CEILTXT: air.ceil === 0 ? 'NO FLY' : 'Max ' + fmtAlt(effCeil),
+      CEILSUB: (air.ceil >= 0 && air.ceil < maxAlt) ? 'FAA grid ceiling here' : (maxAlt === 400 ? 'legal limit, above ground' : 'your limit, above ground'),
+      CEILSEV: ceilSev, HSTART: Math.floor(now / 60), HLBL: fmtAlt(maxAlt).toUpperCase()
     }
   };
 }
@@ -347,6 +420,7 @@ function assess(w, kp, air) {
 function run() {
   if (running) return;
   running = true;
+  loadSettings();
   status('Finding you...');
   navigator.geolocation.getCurrentPosition(function (pos) {
     var lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -357,17 +431,14 @@ function run() {
       running = false;
       if (!weather || !weather.current) { status('No weather data. Check connection.'); return; }
       var r;
-      try { r = assess(weather, kp === null || isNaN(kp) ? 0 : kp, air || { zones: [], ceil: -1, ok: false }); }
+      try { r = assess(weather, kp === null || isNaN(kp) ? 0 : kp, air || { zones: [], ceil: -1, ok: false, missing: ['all'] }); }
       catch (e) { status('Error: ' + e.message); return; }
-      var v = r.vals;
-      enqueue({ VERDICT: r.verdict, REASON: r.reason, W0: v.W0, W100: v.W100, W200: v.W200, W300: v.W300, W400: v.W400,
-        GUST: v.GUST, WDIR: v.WDIR, TEMP: v.TEMP });
-      enqueue({ PRECIP: v.PRECIP, COND: v.COND, VIS: v.VIS, CLOUD: v.CLOUD, KP: v.KP,
-        SUNRISE: v.SUNRISE, SUNSET: v.SUNSET, NOWMIN: v.NOWMIN, CEIL: v.CEIL });
-      enqueue({ HSTART: v.HSTART, HW: r.hw, HV: r.hv });
-      enqueue({ ZONES: r.zlines.length ? r.zlines.join('\n') : '0No restricted zones within ' + SEARCH_MI + ' mi' });
+      enqueue(r.m2);
+      enqueue({ HW: r.hw, HV: r.hv });
+      enqueue({ ZONES: r.zlines.length ? r.zlines.join('\n') : '0No restricted zones within ' + fmtLen(SEARCH_MI) });
       var al = r.alerts.slice(0, 6).map(function (a) { return '' + a.sev + a.text + '\t' + trunc(a.detail, 34); });
       enqueue({ ALERTS: al.length ? al.join('\n') : '0All clear\tNo warnings' });
+      enqueue(r.m1); // verdict last: it triggers the vibration / sound
     }
     fetchWeather(lat, lon, function (d) { weather = d; check(); });
     fetchKp(function (k) { kp = k; check(); });
@@ -380,3 +451,5 @@ function run() {
 
 Pebble.addEventListener('ready', function () { run(); });
 Pebble.addEventListener('appmessage', function (e) { if (e.payload && e.payload.REQUEST !== undefined) run(); });
+// Settings saved in the Pebble app: Clay stores them, then refresh with the new limits.
+Pebble.addEventListener('webviewclosed', function () { setTimeout(run, 600); });
