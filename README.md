@@ -114,6 +114,6 @@ The app needs location permission on your phone (Pebble app settings).
 - src/pkjs/index.js: phone side (location, data fetching, airspace math, units, verdict)
 - src/pkjs/config.json: settings page definition (Clay)
 - tools/make_assets.py: generates the store banner, icons and menu icon
-- screenshots: store banner, icons and watch screenshots
+- screenshots: store banner and icons, plus screenshots/emery and screenshots/gabbro with one image per app page
 
 Author: Brooman Inks

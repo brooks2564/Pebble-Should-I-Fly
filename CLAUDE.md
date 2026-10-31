@@ -34,3 +34,6 @@ Node shim (not committed): fake `XMLHttpRequest` (via fetch), `navigator.geoloca
 
 ## Assets
 `python3 tools/make_assets.py` regenerates `screenshots/banner.png` (720x320), icons 144/80/25, and `resources/images/menu_icon.png` (25x25).
+
+## Screenshots
+`screenshots/emery/` and `screenshots/gabbro/` hold one PNG per page (1-verdict to 6-next-6-hours), taken in the emulator at 12:15 PM with a GO verdict (location 33.2 -97.5). Because real conditions change, they were made from a scratch copy of the project whose pkjs treats the forecast's 12:00 hour as "now". Never commit that patched copy or its pbw. Reset the emulator flash and use `pebble emu-set-location` before capturing.

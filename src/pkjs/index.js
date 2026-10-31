@@ -435,7 +435,7 @@ function run() {
       catch (e) { status('Error: ' + e.message); return; }
       enqueue(r.m2);
       enqueue({ HW: r.hw, HV: r.hv });
-      enqueue({ ZONES: r.zlines.length ? r.zlines.join('\n') : '0No restricted zones within ' + fmtLen(SEARCH_MI) });
+      enqueue({ ZONES: r.zlines.length ? r.zlines.join('\n') : '0No restricted zones\twithin ' + fmtLen(SEARCH_MI) });
       var al = r.alerts.slice(0, 6).map(function (a) { return '' + a.sev + a.text + '\t' + trunc(a.detail, 34); });
       enqueue({ ALERTS: al.length ? al.join('\n') : '0All clear\tNo warnings' });
       enqueue(r.m1); // verdict last: it triggers the vibration / sound
